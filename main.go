@@ -44,7 +44,7 @@ func main() {
 	options.OnConnect = func(c mqtt.Client) {
 		log.Println("Connected")
 
-		t := c.Subscribe(mqttTopic, 0, nil)
+		t := c.Subscribe(mqttTopic, 2, nil)
 		go func() {
 			_ = t.Wait()
 			if t.Error() != nil {
