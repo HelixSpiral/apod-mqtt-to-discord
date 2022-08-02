@@ -16,7 +16,7 @@ The variables used are:
 Build with Docker
 ---
 
-We use the Docker buildx feature to build multiple architectures: `docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/helixspiral/apoddiscordbot:latest .`
+We use the Docker buildx feature to build multiple architectures: `docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/helixspiral/apod-mqtt-to-discord:latest .`
 
 If all you need is your arch you can omit the platform specific stuff and just do a normal docker build.
 
