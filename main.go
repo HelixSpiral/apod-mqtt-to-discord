@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +13,31 @@ import (
 	"github.com/helixspiral/apod"
 )
 
+func init() {
+	logLevel := &slog.LevelVar{}
+	if logLevelEnv := os.Getenv("LOG_LEVEL"); logLevelEnv != "" {
+		switch logLevelEnv {
+		case "ERROR":
+			logLevel.Set(slog.LevelError)
+		case "WARN":
+			logLevel.Set(slog.LevelWarn)
+		case "INFO":
+			logLevel.Set(slog.LevelInfo)
+		case "DEBUG":
+			logLevel.Set(slog.LevelDebug)
+		default:
+			logLevel.Set(slog.LevelInfo)
+		}
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+
+	// Replace the default logger
+	slog.SetDefault(logger)
+}
+
 func main() {
 	// Some initial setup with our environment
 	discordBotToken := os.Getenv("DISCORD_BOT_TOKEN")
@@ -21,17 +46,23 @@ func main() {
 	mqttClientId := os.Getenv("MQTT_CLIENT_ID")
 	mqttTopic := os.Getenv("MQTT_TOPIC")
 
+	slog.Info("Starting the MQTT to Discord service", "discord_channel_id", discordChannelId, "mqtt_broker", mqttBroker, "mqtt_client_id", mqttClientId, "mqtt_topic", mqttTopic)
+
 	// Setup the discord bot
 	dg, err := discordgo.New("Bot " + discordBotToken)
 	if err != nil {
-		panic(err)
+		slog.Error("Error creating Discord session", "error", err)
+
+		os.Exit(1)
 	}
 	dg.Identify.Intents = discordgo.IntentsNone
 
 	// Connect to Discord
 	err = dg.Open()
 	if err != nil {
-		panic(err)
+		slog.Error("Error opening connection to Discord", "error", err)
+
+		os.Exit(1)
 	}
 
 	// Setup the MQTT client options
@@ -39,26 +70,26 @@ func main() {
 	options.ConnectRetry = true
 	options.AutoReconnect = true
 	options.OnConnectionLost = func(c mqtt.Client, e error) {
-		log.Println("Connection lost")
+		slog.Warn("Connection lost", "error", e)
 	}
 	options.OnConnect = func(c mqtt.Client) {
-		log.Println("Connected")
+		slog.Info("Connected to MQTT broker")
 
 		t := c.Subscribe(mqttTopic, 2, nil)
 		go func() {
 			_ = t.Wait()
 			if t.Error() != nil {
-				log.Printf("Error subscribing: %s\n", t.Error())
+				slog.Error("Error subscribing", "error", t.Error())
 			} else {
-				log.Println("Subscribed to:", mqttTopic)
+				slog.Info("Subscribed to MQTT topic", "mqtt_topic", mqttTopic)
 			}
 		}()
 	}
 	options.OnReconnecting = func(_ mqtt.Client, co *mqtt.ClientOptions) {
-		log.Println("Attempting to reconnect")
+		slog.Info("Reconnecting to MQTT broker", "mqtt_broker", co.Servers)
 	}
 	options.DefaultPublishHandler = func(_ mqtt.Client, m mqtt.Message) {
-		log.Printf("Received: %s->%s\n", m.Topic(), m.Payload())
+		slog.Debug("Received message", "topic", m.Topic(), "payload", string(m.Payload()))
 
 		// Unmarshal the received json into a struct
 		var apodMsg apod.ApodQueryOutput
@@ -70,13 +101,17 @@ func main() {
 		// Send the message to the specified channel
 		msg, err := dg.ChannelMessageSend(discordChannelId, messageToSend)
 		if err != nil {
-			panic(err)
+			slog.Error("Error sending message to Discord", "error", err)
+
+			return
 		}
 
 		// "Crosspost" the message so it goes to all the followers.
 		_, err = dg.ChannelMessageCrosspost(msg.ChannelID, msg.ID)
 		if err != nil {
-			panic(err)
+			slog.Error("Error crossposting message to Discord", "error", err)
+
+			return
 		}
 
 	}
@@ -86,9 +121,11 @@ func main() {
 
 	// Connect to the MQTT server
 	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
+		slog.Error("Error connecting to MQTT broker", "error", token.Error())
+
+		os.Exit(1)
 	}
-	log.Println("Connected")
+	slog.Info("Connected to MQTT broker", "mqtt_broker", mqttBroker)
 
 	// Block indefinitely until something above errors, or we close out.
 	sig := make(chan os.Signal, 1)
@@ -97,7 +134,7 @@ func main() {
 
 	<-sig
 
-	log.Println("Signal caught -> Exit")
+	slog.Info("Shutting down")
 	mqttClient.Disconnect(1000)
 }
 
