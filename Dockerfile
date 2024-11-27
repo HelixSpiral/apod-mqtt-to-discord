@@ -1,4 +1,4 @@
-FROM golang:alpine as Build
+FROM golang:alpine AS build
 
 # We need ca-certificates for ssl cert verification
 RUN apk --no-cache add ca-certificates
@@ -15,7 +15,7 @@ FROM scratch
 
 WORKDIR /app
 
-COPY --from=Build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=Build /app/main .
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build /app/main .
 
 CMD [ "/app/main" ]
